@@ -225,6 +225,7 @@ class MyPromise {
 }
 
 module.exports = {
+  MyPromise,
   deferred: function () {
     var resolve, reject;
     return {
@@ -237,15 +238,3 @@ module.exports = {
     };
   },
 };
-
-MyPromise.all([
-  new MyPromise((resolve) => {
-    setTimeout(() => {
-      resolve(1);
-    }, 1000);
-  }),
-  2,
-  MyPromise.resolve({ name: "rjy" }),
-]).then((res) => {
-  console.log("res: ", res);
-});
