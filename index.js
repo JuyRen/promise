@@ -1,12 +1,4 @@
 // 在执行上下文栈清空之前
-
-//  * 2.1 promise的状态一定是以下三者之一：
-const STATUS = {
-  PENDING: "pending",
-  FULFILLED: "fulfilled",
-  REJECTED: "rejected",
-};
-
 function nextTick(callback) {
   if (
     typeof process !== "undefined" &&
@@ -22,11 +14,18 @@ function nextTick(callback) {
     textNode.data = "2";
   }
 }
+//  * 2.1 promise的状态一定是以下三者之一：
+const STATUS = {
+  PENDING: "pending",
+  FULFILLED: "fulfilled",
+  REJECTED: "rejected",
+};
 
 function resolve(value) {
   // 2.1.1 处于pending的时候，promise
-  //    2.1.1.1.能够转变成fulfilled
   if (this.status === STATUS.PENDING) {
+    //    2.1.1.1.能够转变成fulfilled
+
     // 2.1.2 处于fulfilled的时候
     //      2.1.2.1 不能再改变promise状态
     Object.defineProperty(this, "status", {
@@ -39,13 +38,9 @@ function resolve(value) {
       writable: false,
     });
 
-    nextTick(() => {
-      if (this.onFulfilledCallbacks.length) {
-        this.onFulfilledCallbacks.forEach((onFulfilled) => onFulfilled());
-      }
-
-      this.onFulfilledCallbacks = [];
-    });
+    if (this.onFulfilledCallbacks.length) {
+      this.onFulfilledCallbacks.forEach((onFulfilled) => onFulfilled());
+    }
   }
 }
 
@@ -65,49 +60,52 @@ function reject(reason) {
       writable: false,
     });
 
-    nextTick(() => {
-      if (this.onRejectedCallbacks.length) {
-        this.onRejectedCallbacks.forEach((onRejected) => onRejected());
-      }
-
-      this.onRejectedCallbacks = [];
-    });
+    if (this.onRejectedCallbacks.length) {
+      this.onRejectedCallbacks.forEach((onRejected) => onRejected());
+    }
   }
 }
 
 function resolvePromiseByX(x, promise, resolve, reject) {
   if (promise === x) {
-    console.log("in resolvePromiseByX: step 1");
     // 2.3.1 promise和x指向同一个对象，会将promise状态变成rejected，并且reason是一个TypeError
     return reject(new TypeError("promise and x are same "));
   } else if (x instanceof MyPromise) {
-    console.log("in resolvePromiseByX: step 2");
-    // 2.3.2 如果x是一个promise,会采纳它的状态
-    if (x.status === STATUS.PENDING) {
-      //    2.3.2.1 如果x处于pending, 那么promise必须保持pending直到x变成fulfilled或者rejected
-      x.then(resolve, reject);
-    } else if (x.status === STATUS.FULFILLED) {
-      // 2.3.2.2 如果x变成fulfilled，那么promise也变成fulfilled，它的value与x.value相同
-      resolve(x.value);
-    } else {
-      // 2.3.2.3 如果x变成rejected，那么promise也变成rejected，它的reason与x.reason相同
-      reject(x.reason);
-    }
-  } else if (typeof x === "object" || typeof x === "function") {
-    console.log("in resolvePromiseByX: step 3");
-    // 2.3.3 如果x是一个对象或者函数
-    try {
-      //     2.3.3.1 让then变成x.then
-      //     2.3.3.2 如果检索属性x.then导致引发异常e，则promise变成rejected， reason为e
-      let then = x.then;
+    // // 2.3.2 如果x是一个promise,会采纳它的状态
+    // if (x.status === STATUS.PENDING) {
+    //   //    2.3.2.1 如果x处于pending, 那么promise必须保持pending直到x变成fulfilled或者rejected
+    //   x.then(function (y) {
+    //     resolvePromiseByX(y, promise, resolve, reject);
+    //   }, reject);
+    // } else if (x.status === STATUS.FULFILLED) {
+    //   // 2.3.2.2 如果x变成fulfilled，那么promise也变成fulfilled，它的value与x.value相同
+    //   resolve(x.value);
+    // } else {
+    //   // 2.3.2.3 如果x变成rejected，那么promise也变成rejected，它的reason与x.reason相同
+    //   reject(x.reason);
+    // }
 
-      //     2.3.3.3.3 如果同时调用resolvePromise和rejectPromise，或者对同一参数进行了多次调用，则第一个调用优先，而所有其他调用均被忽略
+    x.then(function (y) {
+      resolvePromiseByX(y, promise, resolve, reject);
+    }, reject);
+  } else if ((x && typeof x === "object") || typeof x === "function") {
+    // 2.3.3 如果x是一个对象或者函数
+    //     2.3.3.1 让then变成x.then
+    //     2.3.3.2 如果检索属性x.then导致引发异常e，则promise变成rejected， reason为e
+    try {
+      var then = x.then;
+    } catch (error) {
+      // 如果取 x.then 的值时抛出错误 e ，则以 e 为据因拒绝 promise
+      return reject(error);
+    }
+
+    if (typeof then === "function") {
+      //     2.3.3.3 如果then是一个函数，则用x作为this来调用它，
+      //     第一个参数resolvePromise，
+      //     第二个参数rejectPromise
       var called = false;
 
-      if (typeof then === "function") {
-        //     2.3.3.3 如果then是一个函数，则用x作为this来调用它，
-        //     第一个参数resolvePromise，
-        //     第二个参数rejectPromise
+      try {
         then.call(
           x,
           (v) => {
@@ -123,26 +121,22 @@ function resolvePromiseByX(x, promise, resolve, reject) {
             reject(r);
           }
         );
-      } else {
-        // 2.3.3.4 如果then不是一个方法， promise状态变成fulfilled，value为x
-
-        // 2.3.3.3.4.1 如果已调用resolvePromise或rejectPromise，则将其忽略
+      } catch (err) {
         if (called) return;
-        resolve(x);
+        reject(err);
       }
-    } catch (err) {
-      reject(err);
+    } else {
+      // 2.3.3.4 如果then不是一个方法， promise状态变成fulfilled，value为x
+      //    2.3.3.3.4.1 如果已调用resolvePromise或rejectPromise，则将其忽略
+      resolve(x);
     }
   } else {
-    console.log("in resolvePromiseByX: step 4");
     resolve(x);
   }
 }
 class MyPromise {
   constructor(fn) {
     this.status = STATUS.PENDING;
-    this.value = null;
-    this.reason = null;
 
     this.onFulfilledCallbacks = [];
     this.onRejectedCallbacks = [];
@@ -171,8 +165,16 @@ class MyPromise {
       var promise2 = new MyPromise((resolve, reject) => {
         nextTick(() => {
           try {
-            const x = finalOnFulfilled(this.value);
-            resolvePromiseByX(x, promise2, resolve, reject);
+            if (typeof onFulfilled === "function") {
+              const x = onFulfilled(this.value);
+              resolvePromiseByX(x, promise2, resolve, reject);
+            } else {
+              // 2.2.7.3 如果onFulfilled不是一个函数，
+              //         并且promise1是fulfilled状态，
+              //         那么promise2一定是fulfilled状态，
+              //         并且它的value是promise1的value
+              resolve(this.value);
+            }
           } catch (err) {
             reject(err);
           }
@@ -183,7 +185,16 @@ class MyPromise {
       const promise2 = new MyPromise((resolve, reject) => {
         nextTick(() => {
           try {
-            finalOnRejected(this.reason);
+            if (typeof onRejected === "function") {
+              const x = onRejected(this.reason);
+              resolvePromiseByX(x, promise2, resolve, reject);
+            } else {
+              // 2.2.7.4 如果onRejected不是一个函数，
+              //         并且promise1是rejected状态，
+              //         那么promise2一定是rejected状态
+              //         并且它的reason是promise1的reason
+              reject(this.reason);
+            }
           } catch (err) {
             reject(err);
           }
@@ -199,18 +210,32 @@ class MyPromise {
        */
       const promise2 = new MyPromise((resolve, reject) => {
         this.onFulfilledCallbacks.push(() => {
-          try {
-            finalOnFulfilled(this.value);
-          } catch (err) {
-            reject(err);
-          }
+          nextTick(() => {
+            try {
+              if (typeof onFulfilled === "function") {
+                const x = onFulfilled(this.value);
+                resolvePromiseByX(x, promise2, resolve, reject);
+              } else {
+                resolve(this.value);
+              }
+            } catch (err) {
+              reject(err);
+            }
+          });
         });
         this.onRejectedCallbacks.push(() => {
-          try {
-            finalOnRejected(this.reason);
-          } catch (err) {
-            reject(err);
-          }
+          nextTick(() => {
+            try {
+              if (typeof onRejected === "function") {
+                const x = onRejected(this.reason);
+                resolvePromiseByX(x, promise2, resolve, reject);
+              } else {
+                reject(this.reason);
+              }
+            } catch (err) {
+              reject(err);
+            }
+          });
         });
       });
       return promise2;
@@ -218,28 +243,26 @@ class MyPromise {
   }
 }
 
-const p = new MyPromise((resolve, reject) => {
-  resolve(100);
-});
-
-p.then(
-  (res) => {
-    console.log("res: ", res);
+module.exports = {
+  resolved: function (value) {
+    return new MyPromise(function (resolve) {
+      resolve(value);
+    });
+  },
+  rejected: function (reason) {
+    return new MyPromise(function (resolve, reject) {
+      reject(reason);
+    });
+  },
+  deferred: function () {
+    var resolve, reject;
     return {
-      x: 1,
-      then(resolvePromise, rejectPromise) {
-        resolvePromise(1000);
-      },
+      promise: new MyPromise(function (res, rej) {
+        resolve = res;
+        reject = rej;
+      }),
+      resolve: resolve,
+      reject: reject,
     };
   },
-  (err) => {
-    console.log("err: ", err);
-  }
-).then(
-  (res) => {
-    console.log("res1: ", res);
-  },
-  (err) => {
-    console.log("err1: ", err);
-  }
-);
+};
