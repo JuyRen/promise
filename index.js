@@ -107,6 +107,47 @@ class MyPromise {
     }
   }
 
+  static resolve(x) {
+    if (x instanceof MyPromise) {
+      return x;
+    }
+
+    return new MyPromise((resolve, reject) => {
+      resolve(x);
+    });
+  }
+
+  static reject(x) {
+    return new MyPromise((resolve, reject) => {
+      reject(x);
+    });
+  }
+
+  static all(array) {
+    return new MyPromise((resolve, reject) => {
+      var count = 0;
+      var result = [];
+      for (let i = 0, len = array.length; i < len; i++) {
+        const item = MyPromise.resolve(array[i]);
+        item
+          .then((res) => {
+            count++;
+            result[i] = res;
+            if (count === len) {
+              resolve(result);
+            }
+          })
+          .catch((err) => {
+            reject(err);
+          });
+      }
+    });
+  }
+
+  static race() {}
+
+  static allSettled() {}
+
   then(onFulfilled, onRejected) {
     if (this.status === PROMISE_STATUS.FULFILLED) {
       const promise2 = new MyPromise((resolve, reject) => {
@@ -177,6 +218,10 @@ class MyPromise {
       return promise2;
     }
   }
+
+  catch(onRejected) {
+    return this.then(null, onRejected);
+  }
 }
 
 module.exports = {
@@ -192,3 +237,15 @@ module.exports = {
     };
   },
 };
+
+MyPromise.all([
+  new MyPromise((resolve) => {
+    setTimeout(() => {
+      resolve(1);
+    }, 1000);
+  }),
+  2,
+  MyPromise.resolve({ name: "rjy" }),
+]).then((res) => {
+  console.log("res: ", res);
+});

@@ -37,7 +37,7 @@ promise.then(onFulfilled, onRejected)
 ```
 
     2.2.1 onFulfilled和onRejected都是可选参数
-        2.2.1.1 如果onFulfilled不是一个函数，那么它必须被忽略(笔者个人备注：即不执行，不报错)
+        2.2.1.1 如果onFulfilled不是一个函数，那么它必须被忽略
         2.2.1.2 如果onRejected不是一个函数，那么它必须被忽略
 
     2.2.2 如果onFulfilled是一个函数：
