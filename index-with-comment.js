@@ -88,7 +88,7 @@ class MyPromise {
     this.value = null; // value: js中任何数据类型，包括undefined，thenable, promise
     this.reason = null; // reason: 用来描述”promise“为什么”rejected“
 
-    this.onFulfilledCallbacksQueue = []; // 存放状态变为fulfilled时的回调
+    this.onFulfilledCallbacksQueue = []; // 存放状态变为fulfilled时的回调 多次promise.then() promise.then() promise.then()，每个都要储存
     this.onRejectedCallbacksQueue = []; // 存放状态变为rejected时的回调
 
     const resolve = (value) => {
