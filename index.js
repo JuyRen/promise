@@ -20,43 +20,44 @@ function nextTick(cb) {
   }
 }
 
-function resolvePromise2ByValue(promise, x, resolve, reject) {
+function promiseResolutionProcedure(promise, x, resolve, reject) {
   if (promise === x) {
-    return reject(
-      new TypeError("Chaining cycle detected for promise #<Promise>")
-    );
-  } else if (x instanceof MyPromise) {
+    throw new TypeError("same object");
+  } else if (x instanceof MSPromise) {
     x.then((y) => {
-      resolvePromise2ByValue(promise, y, resolve, reject);
+      promiseResolutionProcedure(promise, y, resolve, reject);
     }, reject);
-  } else if ((x && typeof x === "object") || typeof x === "function") {
+  } else if ((typeof x === "object" && x !== null) || typeof x === "function") {
     let then;
+    let called = false;
 
     try {
       then = x.then;
-    } catch (err) {
-      reject(err);
+    } catch (error) {
+      reject(error);
     }
 
     if (typeof then === "function") {
-      let called = false;
       try {
-        then.call(
-          x,
-          (y) => {
-            if (called) return;
+        const resolvePromise = (y) => {
+          if (!called) {
+            promiseResolutionProcedure(promise, y, resolve, reject);
             called = true;
-            resolvePromise2ByValue(promise, y, resolve, reject);
-          },
-          (r) => {
-            if (called) return;
-            called = true;
-            reject(r);
           }
-        );
-      } catch (e) {
-        if (called) return;
-        reject(e);
+        };
+
+        const rejectPromise = (error) => {
+          if (!called) {
+            reject(error);
+            called = true;
+          }
+        };
+
+        then.call(x, resolvePromise, rejectPromise);
+      } catch (error) {
+        if (!called) {
+          reject(error);
+        }
       }
     } else {
       resolve(x);
@@ -65,24 +66,31 @@ function resolvePromise2ByValue(promise, x, resolve, reject) {
     resolve(x);
   }
 }
-class MyPromise {
+
+class MSPromise {
   constructor(executor) {
     this.status = PROMISE_STATUS.PENDING;
     this.value = null;
     this.reason = null;
 
-    this.onFulfilledCallbacksQueue = [];
-    this.onRejectedCallbacksQueue = [];
+    this.onFulfilledCallbacks = [];
+    this.onRejectedCallbacks = [];
 
     const resolve = (value) => {
       if (this.status === PROMISE_STATUS.PENDING) {
-        this.status = PROMISE_STATUS.FULFILLED;
-        this.value = value;
+        if (value instanceof MSPromise) {
+          value.then(resolve, reject);
+        } else {
+          this.status = PROMISE_STATUS.FULFILLED;
+          this.value = value;
 
-        if (this.onFulfilledCallbacksQueue.length) {
-          this.onFulfilledCallbacksQueue.forEach((callback) => {
-            callback();
-          });
+          if (this.onFulfilledCallbacks.length) {
+            this.onFulfilledCallbacks.forEach((cb) => {
+              cb();
+            });
+
+            this.onFulfilledCallbacks = [];
+          }
         }
       }
     };
@@ -92,10 +100,12 @@ class MyPromise {
         this.status = PROMISE_STATUS.REJECTED;
         this.reason = reason;
 
-        if (this.onRejectedCallbacksQueue.length) {
-          this.onRejectedCallbacksQueue.forEach((callback) => {
-            callback();
+        if (this.onRejectedCallbacks.length) {
+          this.onRejectedCallbacks.forEach((cb) => {
+            cb();
           });
+
+          this.onRejectedCallbacks = [];
         }
       }
     };
@@ -107,28 +117,151 @@ class MyPromise {
     }
   }
 
+  then(onFulfilled, onRejected) {
+    if (this.status === PROMISE_STATUS.FULFILLED) {
+      const promise2 = new MSPromise((resolve, reject) => {
+        nextTick(() => {
+          if (onFulfilled) {
+            if (typeof onFulfilled === "function") {
+              try {
+                const x = onFulfilled(this.value);
+                promiseResolutionProcedure(promise2, x, resolve, reject);
+              } catch (error) {
+                reject(error);
+              }
+            } else {
+              resolve(this.value);
+            }
+          } else {
+            resolve(this.value);
+          }
+        });
+      });
+
+      return promise2;
+    }
+
+    if (this.status === PROMISE_STATUS.REJECTED) {
+      const promise2 = new MSPromise((resolve, reject) => {
+        nextTick(() => {
+          if (onRejected) {
+            if (typeof onRejected === "function") {
+              try {
+                const x = onRejected(this.reason);
+                promiseResolutionProcedure(promise2, x, resolve, reject);
+              } catch (error) {
+                reject(error);
+              }
+            } else {
+              reject(this.reason);
+            }
+          } else {
+            reject(this.reason);
+          }
+        });
+      });
+
+      return promise2;
+    }
+
+    if (this.status === PROMISE_STATUS.PENDING) {
+      const promise2 = new MSPromise((resolve, reject) => {
+        this.onFulfilledCallbacks.push(() => {
+          nextTick(() => {
+            if (onFulfilled) {
+              if (typeof onFulfilled === "function") {
+                try {
+                  const x = onFulfilled(this.value);
+                  promiseResolutionProcedure(promise2, x, resolve, reject);
+                } catch (error) {
+                  reject(error);
+                }
+              } else {
+                resolve(this.value);
+              }
+            } else {
+              resolve(this.value);
+            }
+          });
+        });
+
+        this.onRejectedCallbacks.push(() => {
+          nextTick(() => {
+            if (onRejected) {
+              if (typeof onRejected === "function") {
+                try {
+                  const x = onRejected(this.reason);
+                  promiseResolutionProcedure(promise2, x, resolve, reject);
+                } catch (error) {
+                  reject(error);
+                }
+              } else {
+                reject(this.reason);
+              }
+            } else {
+              reject(this.reason);
+            }
+          });
+        });
+      });
+
+      return promise2;
+    }
+  }
+
+  catch(onRejected) {
+    return this.then(null, onRejected);
+  }
+
+  finally(cb) {
+    return this.then(
+      (value) => {
+        try {
+          cb();
+          return value;
+        } catch (error) {
+          throw error;
+        }
+      },
+      (error) => {
+        try {
+          cb();
+          throw error;
+        } catch (e) {
+          throw e;
+        }
+      }
+    );
+  }
+
   static resolve(x) {
-    if (x instanceof MyPromise) {
+    if (x instanceof MSPromise) {
       return x;
     }
 
-    return new MyPromise((resolve, reject) => {
+    if (x.then) {
+      return new MSPromise((resolve, reject) => {
+        return x.then(resolve, reject);
+      });
+    }
+
+    return new MSPromise((resolve, reject) => {
       resolve(x);
     });
   }
 
   static reject(x) {
-    return new MyPromise((resolve, reject) => {
+    return new MSPromise((resolve, reject) => {
       reject(x);
     });
   }
 
   static all(array) {
-    return new MyPromise((resolve, reject) => {
+    return new MSPromise((resolve, reject) => {
       var count = 0;
       var result = [];
       for (let i = 0, len = array.length; i < len; i++) {
-        const item = MyPromise.resolve(array[i]);
+        const item = MSPromise.resolve(array[i]);
         item
           .then((res) => {
             count++;
@@ -144,92 +277,23 @@ class MyPromise {
     });
   }
 
-  static race() {}
+  static race(array) {
+    return new MSPromise((resolve, reject) => {
+      for (let i = 0; i < array.length; i++) {
+        const item = MSPromise.resolve(array[i]);
 
-  static allSettled() {}
-
-  then(onFulfilled, onRejected) {
-    if (this.status === PROMISE_STATUS.FULFILLED) {
-      const promise2 = new MyPromise((resolve, reject) => {
-        nextTick(() => {
-          if (typeof onFulfilled !== "function") {
-            resolve(this.value);
-          } else {
-            try {
-              const x = onFulfilled(this.value);
-              resolvePromise2ByValue(promise2, x, resolve, reject);
-            } catch (err) {
-              reject(err);
-            }
-          }
-        });
-      });
-      return promise2;
-    } else if (this.status === PROMISE_STATUS.REJECTED) {
-      const promise2 = new Promise((resolve, reject) => {
-        nextTick(() => {
-          if (typeof onRejected !== "function") {
-            reject(this.reason);
-          } else {
-            try {
-              const x = onRejected(this.reason);
-              resolvePromise2ByValue(promise2, x, resolve, reject);
-            } catch (err) {
-              reject(err);
-            }
-          }
-        });
-      });
-
-      return promise2;
-    } else {
-      const promise2 = new Promise((resolve, reject) => {
-        this.onFulfilledCallbacksQueue.push(() => {
-          nextTick(() => {
-            try {
-              if (typeof onFulfilled === "function") {
-                const x = onFulfilled(this.value);
-                resolvePromise2ByValue(promise2, x, resolve, reject);
-              } else {
-                resolve(this.value);
-              }
-            } catch (err) {
-              reject(err);
-            }
-          });
-        });
-
-        this.onRejectedCallbacksQueue.push(() => {
-          nextTick(() => {
-            try {
-              if (typeof onRejected === "function") {
-                const x = onRejected(this.reason);
-                resolvePromise2ByValue(promise2, x, resolve, reject);
-              } else {
-                reject(this.reason);
-              }
-            } catch (err) {
-              reject(err);
-            }
-          });
-        });
-      });
-
-      return promise2;
-    }
-  }
-
-  catch(onRejected) {
-    return this.then(null, onRejected);
+        item.then(resolve, reject);
+      }
+    });
   }
 }
 
 module.exports = {
-  MyPromise,
+  MSPromise,
   deferred: function () {
     var resolve, reject;
     return {
-      promise: new MyPromise(function (res, rej) {
+      promise: new MSPromise(function (res, rej) {
         resolve = res;
         reject = rej;
       }),
