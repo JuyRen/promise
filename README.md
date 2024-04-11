@@ -29,7 +29,7 @@
 
 2.2 then 方法
 
-> promise 必须提供 then 方法，去接受当前或最终的 value 或 rason。
+> promise 必须提供 then 方法，去接受当前或最终的 value 或 reason。
 
 ```
 then方法接受两个参数
