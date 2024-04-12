@@ -1,4 +1,13 @@
-/* thenable
+/**
+ * 注释1：
+ * 构造函数的传参文档上没有说明，只能以实际 new Promise((resolve, reject) => {}) 情况,
+ * 定义executor函数的两个参数resolve和reject,
+ * resolve改变promise的状态为fulfilled, reject改变promise的状态为rejected.
+ */
+
+/*
+  注释2：
+  术语thenable的解释
   - thenable is an object or function that defines a then method.
   例子：
   1、
@@ -11,8 +20,25 @@
     thenable.then = function() {}
 */
 
-// 模拟微任务
-function simulationMicrotask(cb) {
+/**
+ * 注释3：
+ * 2.2.6 then may be called multiple times on the same promise.
+ *
+ * const p1 = new MyPromise()
+ *
+ * p1.then()
+ * p1.then()
+ * p1.then()
+ *
+ */
+
+/**
+ * 注释4: mockMicrotask
+ * 模拟浏览器环境或node环境微任务队列
+ * queueMicrotask 、 MutationObserver 、 process.nextTick.
+ */
+
+function mockMicrotask(cb) {
   if (
     typeof process !== "undefined" &&
     typeof process.nextTick === "function"
@@ -23,36 +49,18 @@ function simulationMicrotask(cb) {
   }
 }
 
-const STATUS = {
-  PENDING: "pending",
-  FULFILLED: "fulfilled",
-  REJECTED: "rejected",
-};
-
 class MyPromise {
-  constructor() {
-    this.status = STATUS.PENDING;
-    this.value = undefined;
-    this.reason = undefined;
+  constructor(executor) {
+    // 将promise状态从 pending  ==》 fulfilled
+    const resolve = (value) => {};
+
+    // 将promise状态从 pending ==》 rejected
+    const reject = (reason) => {};
+
+    executor(resolve, reject);
   }
 
-  then(onFulfilled, onRejected) {
-    if (onFulfilled) {
-      if (typeof onFulfilled === "function") {
-        if (this.status === STATUS.FULFILLED) {
-          onFulfilled(this.value);
-        }
-      }
-    }
-
-    if (onRejected) {
-      if (typeof onRejected === "function") {
-        if (this.status === STATUS.REJECTED) {
-          onRejected(this.reason);
-        }
-      }
-    }
-  }
+  then() {}
 }
 
 module.exports = {
