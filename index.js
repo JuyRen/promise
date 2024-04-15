@@ -49,18 +49,137 @@ function mockMicrotask(cb) {
   }
 }
 
+const STATES = {
+  PENDING: "pending",
+  FULFILLED: "fulfilled",
+  REJECTED: "rejected",
+};
+
 class MyPromise {
   constructor(executor) {
+    this.status = STATES.PENDING;
+    this.value = undefined;
+    this.reason = undefined;
+
+    this.onFulfilledCallbacks = [];
+    this.onRejectedCallbacks = [];
+
     // 将promise状态从 pending  ==》 fulfilled
-    const resolve = (value) => {};
+    const resolve = (value) => {
+      if (this.status === STATES.PENDING) {
+        this.status = STATES.FULFILLED;
+        this.value = value;
+
+        if (this.onFulfilledCallbacks.length) {
+          this.onFulfilledCallbacks.forEach((cb) => cb());
+          this.onFulfilledCallbacks = [];
+        }
+      }
+    };
 
     // 将promise状态从 pending ==》 rejected
-    const reject = (reason) => {};
+    const reject = (reason) => {
+      if (this.status === STATES.PENDING) {
+        this.status = STATES.REJECTED;
+        this.reason = reason;
+
+        if (this.onRejectedCallbacks.length) {
+          this.onRejectedCallbacks.forEach((cb) => cb());
+          this.onRejectedCallbacks = [];
+        }
+      }
+    };
 
     executor(resolve, reject);
   }
 
-  then() {}
+  then(onFulfilled, onRejected) {
+    if (this.status === STATES.FULFILLED) {
+      const promise2 = new MyPromise((resolve, reject) => {
+        onFulfilled =
+          typeof onFulfilled === "function"
+            ? onFulfilled
+            : () => {
+                resolve(this.value);
+              };
+
+        mockMicrotask(() => {
+          try {
+            const x = onFulfilled(this.value);
+            promiseResolutionProcedure(promise2, x, resolve, reject);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
+
+      return promise2;
+    }
+
+    if (this.status === STATES.REJECTED) {
+      const promise2 = new MyPromise((resolve, reject) => {
+        onRejected =
+          typeof onRejected === "function"
+            ? onRejected
+            : () => {
+                reject(this.reason);
+              };
+
+        mockMicrotask(() => {
+          try {
+            const x = onRejected(this.reason);
+            promiseResolutionProcedure(promise2, x, resolve, reject);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
+
+      return promise2;
+    }
+
+    if (this.status === STATES.PENDING) {
+      const promise2 = new MyPromise((resolve, reject) => {
+        onFulfilled =
+          typeof onFulfilled === "function"
+            ? onFulfilled
+            : () => {
+                resolve(this.value);
+              };
+
+        onRejected =
+          typeof onRejected === "function"
+            ? onRejected
+            : () => {
+                reject(this.reason);
+              };
+
+        this.onFulfilledCallbacks.push(() => {
+          mockMicrotask(() => {
+            try {
+              const x = onFulfilled(this.value);
+              promiseResolutionProcedure(promise2, x, resolve, reject);
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+
+        this.onRejectedCallbacks.push(() => {
+          mockMicrotask(() => {
+            try {
+              const x = onRejected(this.reason);
+              promiseResolutionProcedure(promise2, x, resolve, reject);
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+      });
+
+      return promise2;
+    }
+  }
 }
 
 module.exports = {
@@ -77,3 +196,46 @@ module.exports = {
     };
   },
 };
+
+function promiseResolutionProcedure(promise, x, resolve, reject) {
+  if (x === promise) {
+    reject(new TypeError("same object"));
+  } else if (x instanceof MyPromise) {
+    x.then((y) => {
+      promiseResolutionProcedure(promise, y, resolve, reject);
+    }, reject);
+  } else if ((typeof x === "object" && x !== null) || typeof x === "function") {
+    let then;
+
+    try {
+      then = x.then;
+      let called = false;
+
+      if (typeof then === "function") {
+        const resolvePromise = (y) => {
+          if (called) return;
+          called = true;
+          promiseResolutionProcedure(promise, y, resolve, reject);
+        };
+        const rejectPromise = (r) => {
+          if (called) return;
+          called = true;
+          reject(r);
+        };
+
+        try {
+          then.call(x, resolvePromise, rejectPromise);
+        } catch (e) {
+          if (called) return;
+          reject(e);
+        }
+      } else {
+        resolve(x);
+      }
+    } catch (e) {
+      reject(e);
+    }
+  } else {
+    resolve(x);
+  }
+}
